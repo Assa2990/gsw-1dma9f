@@ -1,0 +1,17 @@
+{
+  "name": "必背古诗文 · 背诵练习器",
+  "short_name": "必背古诗文",
+  "description": "134 篇小学必背古诗文：拼音、朗读、填空、抽查、错题本、家长周报，离线可用。",
+  "lang": "zh-CN",
+  "start_url": "./index.html#/list",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f2e9",
+  "theme_color": "#b5443a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
