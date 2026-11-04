@@ -1,5 +1,5 @@
 /* 离线缓存：首次打开后，断网也能用；卖家更新版本时改 CACHE 名即可 */
-var CACHE = 'gsw-v2.1.3';
+var CACHE = 'gsw-v2.1.4';
 var ASSETS = [
   './index.html',
   './manifest.webmanifest',
@@ -37,6 +37,8 @@ self.addEventListener('fetch', function (e) {
   var url;
   try { url = new URL(req.url); } catch (err) { return; }
   if (url.origin !== self.location.origin) return;
+  // 音频体积大、浏览器用 Range 请求，交给浏览器自己缓存，不走 SW
+  if (url.pathname.indexOf('/audio/') >= 0) return;
 
   if (req.mode === 'navigate') {
     e.respondWith(

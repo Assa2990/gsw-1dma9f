@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f6f2e9">
 <meta name="app-license" content="">
-<meta name="app-version" content="2.1.3">
+<meta name="app-version" content="2.1.4">
 <meta name="description" content="小学必背古诗文背诵练习器：逐句背诵、拼音注音、朗读、填空默写、随机抽查、错题本、打卡与家长报告，离线可用。">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -296,7 +296,6 @@
   body.watch .tabbar a{font-size:9px; padding:3px 0; gap:1px}
   body.watch .tabbar a .ico{font-size:13px}
   body.watch .wm{display:none}
-  body.watch .tts-btn{display:none}
   body.watch .gate{padding:12px}
   body.watch .gate-box{padding:14px}
   body.watch .gate-box h3{font-size:15px}
@@ -351,7 +350,7 @@
   'use strict';
 
   var KEY = 'gsw_v1';
-  var APP_VERSION = '2.1.3';
+  var APP_VERSION = '2.1.4';
   var APP_UPDATED = '2026-11-04';
   var POEMS = Array.isArray(window.POEMS) ? window.POEMS : [];
   var PINYIN = window.POEM_PINYIN || {};
@@ -780,17 +779,27 @@
     });
   }
 
-  var SPEAK = { playing: false, started: false, token: 0, utter: null };
+  var SPEAK = { playing: false, started: false, token: 0, utter: null, audio: null };
 
   function stopSpeak() {
     SPEAK.token += 1;
+    if (SPEAK.audio) {
+      try { SPEAK.audio.pause(); SPEAK.audio.currentTime = 0; } catch (e) {}
+      SPEAK.audio = null;
+    }
     try { window.speechSynthesis.cancel(); } catch (e) {}
     SPEAK.playing = false;
     SPEAK.started = false;
   }
 
-  function speakNow(p, token) {
+  function speakWithTTS(p, token) {
     if (token !== SPEAK.token) return;
+    if (!canSpeak()) {
+      SPEAK.playing = false;
+      toast('朗读加载失败，请检查网络后重试', 2600);
+      render();
+      return;
+    }
     var zh = zhVoices();
     var u = new SpeechSynthesisUtterance(p.text.join(''));
     u.lang = 'zh-CN';
@@ -814,7 +823,6 @@
     SPEAK.utter = u;
 
     try { window.speechSynthesis.cancel(); } catch (e) {}
-    // iOS/Safari 在 cancel 后立刻 speak 可能无效，延迟一点
     setTimeout(function () {
       if (token !== SPEAK.token) return;
       try { window.speechSynthesis.speak(u); }
@@ -824,19 +832,36 @@
         render();
       }
     }, 50);
+  }
 
+  function playAudio(p, token) {
+    var a = new Audio('audio/' + encodeURIComponent(p.id) + '.mp3');
+    SPEAK.audio = a;
+    a.preload = 'auto';
+    a.onplaying = function () { if (token === SPEAK.token) SPEAK.started = true; };
+    a.onended = function () {
+      if (token !== SPEAK.token) return;
+      SPEAK.playing = false;
+      SPEAK.started = false;
+      SPEAK.audio = null;
+      render();
+    };
+    a.onerror = function () {
+      if (token !== SPEAK.token) return;
+      SPEAK.audio = null;
+      // 音频文件缺失或网络失败时，退回系统语音
+      speakWithTTS(p, token);
+    };
+    var pr = a.play();
+    if (pr && pr.catch) pr.catch(function () { /* 由 onerror 处理 */ });
     setTimeout(function () {
       if (token === SPEAK.token && SPEAK.playing && !SPEAK.started) {
-        toast('没有声音？请检查系统是否安装了中文语音', 2600);
+        toast('朗读加载中，请稍候…', 1600);
       }
-    }, 2200);
+    }, 1500);
   }
 
   function toggleSpeak(p) {
-    if (!canSpeak()) {
-      toast('当前浏览器不支持朗读，可用手机自带的朗读功能', 2600);
-      return;
-    }
     if (SPEAK.playing) {
       stopSpeak();
       render();
@@ -847,18 +872,7 @@
     SPEAK.playing = true;
     SPEAK.started = false;
     render();
-
-    // 语音列表可能异步加载，最多等 1.2 秒再播
-    var tries = 0;
-    (function waitVoices() {
-      if (token !== SPEAK.token) return;
-      if (voiceList().length === 0 && tries < 12) {
-        tries += 1;
-        setTimeout(waitVoices, 100);
-        return;
-      }
-      speakNow(p, token);
-    })();
+    playAudio(p, token);
   }
 
   function pinyinFontSize(n) {
@@ -896,7 +910,7 @@
         '<button class="btn" data-act="unmask-all" title="全部显示">显示</button>' +
         '<button class="btn' + (ui.hint ? ' on' : '') + '" data-act="hint" title="每句只露出开头的字" aria-pressed="' + (ui.hint ? 'true' : 'false') + '">' + (ui.hint ? '首字开' : '首字') + '</button>' +
         (pinyinAvailable ? '<button class="btn" data-act="toggle-pinyin" title="显示或隐藏拼音">' + (pinyinOn ? '拼音开' : '拼音关') + '</button>' : '') +
-        (canSpeak() ? '<button class="btn tts-btn" data-act="speak">' + (SPEAK.playing ? '停止' : '朗读') + '</button>' : '') +
+        '<button class="btn tts-btn" data-act="speak">' + (SPEAK.playing ? '停止' : '朗读') + '</button>' +
       '</div>' +
       '<div class="lines' + (pinyinOn ? ' pinyin' : '') + '">' + lines + '</div>' +
       '<p class="tip">点任意一句可以遮住或显示；遮住后先在心里背，再点开对照。</p>' +
@@ -1491,8 +1505,9 @@
         '<button class="btn wide" data-act="toggle-pinyin">背诵拼音：' + (state.settings.pinyin !== false ? '开' : '关') + '</button>' +
         '<button class="btn wide" style="margin-top:8px" data-act="toggle-watch">小屏 / 手表模式：' + (state.settings.watch ? '开' : '关') + '</button>' +
         '<p class="hint-text" style="margin:10px 0 0">' +
-          '拼音在「背诵」页显示，可逐字对照。朗读使用浏览器自带语音，不联网、不额外收费，' +
-          '部分机型没有中文语音，按钮会自动隐藏。' +
+          '拼音在「背诵」页显示，可逐字对照。' +
+          '朗读优先播放内置音频（逐篇录制，不依赖手机语音包）；' +
+          '音频加载失败时自动退回系统语音。' +
           '<br>手表模式会收紧间距、隐藏装饰，屏幕宽度 ≤340px 时自动启用。' +
         '</p>' +
       '</div>' +
@@ -1511,7 +1526,7 @@
         '<p class="card-title">设备自检</p>' +
         '<p class="hint-text" style="margin:0">' +
           '环境：' + (IS_WECHAT ? '微信内置浏览器（朗读/安装受限，建议在系统浏览器打开）' : (IS_IOS ? 'iPhone / iPad' : (IS_ANDROID ? 'Android' : '电脑浏览器'))) + '<br>' +
-          '语音：' + (!canSpeak() ? '不支持' : (zhVoices().length ? '可用（中文语音 ' + zhVoices().length + ' 个）' : '接口可用，但没找到中文语音')) + '<br>' +
+          '朗读：内置音频 134 段；缺失时用系统语音' + (canSpeak() ? '（本机可用）' : '（本机不可用）') + '<br>' +
           '离线缓存：' + ('serviceWorker' in navigator ? (SW_REG ? '已启用' : '支持，首次联网后启用') : '不支持') + '<br>' +
           '安装到桌面：' + (INSTALL_EVENT ? '可直接安装' : (IS_IOS ? '用 Safari 分享 → 添加到主屏幕' : '用浏览器菜单添加')) +
         '</p>' +
